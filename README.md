@@ -1,6 +1,6 @@
-# LLM Inference Benchmarking on IBM Fusion HCI OpenShift
+# LLM Inference Benchmarking Framework for OpenShift
 
-A comprehensive benchmarking suite for comparing LLM inference performance across **vLLM**, **NVIDIA Triton**, and **HuggingFace TGI** on IBM Fusion HCI OpenShift clusters with NVIDIA A100 GPUs.
+A comprehensive, GPU-agnostic benchmarking framework for comparing LLM inference performance across **vLLM**, **NVIDIA Triton**, and **HuggingFace TGI** on Red Hat OpenShift clusters.
 
 **Author:** Deepak Soni
 **Contact:** deepak.satna@gmail.com
@@ -9,14 +9,32 @@ A comprehensive benchmarking suite for comparing LLM inference performance acros
 
 ## Overview
 
-This project provides:
+This project provides a **reusable benchmarking framework** for evaluating LLM inference servers on OpenShift with GPU acceleration. While the reference implementation was tested on IBM Fusion HCI with NVIDIA A100 MIG GPUs, the framework is designed to work with **any CUDA-compatible GPU**.
+
+### Key Features
 - Production-ready Kubernetes manifests for deploying LLM inference servers
 - ACM (Advanced Cluster Management) ManifestWork templates for managed OpenShift clusters
-- Benchmark client supporting multiple backends with identical test conditions
-- Visualization tools for performance analysis
+- Universal benchmark client supporting multiple backends with identical test conditions
+- Visualization tools for performance analysis and comparison
 - Complete troubleshooting documentation for OpenShift GPU workloads
+- Dockerfiles for building custom images with pre-downloaded models
 
-## Quick Results
+### GPU Compatibility
+
+This framework supports any CUDA-compatible GPU, including but not limited to:
+
+| GPU Family | Examples | Notes |
+|------------|----------|-------|
+| **NVIDIA Data Center** | A100, H100, L40S, A10, T4 | Full support |
+| **NVIDIA MIG Partitions** | A100 MIG (various sizes) | Tested configuration |
+| **NVIDIA Consumer** | RTX 4090, RTX 3090 | Adjust memory settings |
+| **AMD (ROCm)** | MI250, MI300 | Requires ROCm-compatible images |
+
+> **Note:** Performance results will vary based on GPU architecture, memory capacity, memory bandwidth, and compute capability. The benchmark results in this repository are specific to the test environment and should be used as a reference point, not absolute values.
+
+## Reference Benchmark Results
+
+The following results were obtained on the reference test environment (A100 MIG 20GB). **Your results will vary** based on your specific GPU hardware.
 
 | Backend | Peak Throughput | P50 Latency | Success Rate | Notes |
 |---------|-----------------|-------------|--------------|-------|
@@ -26,7 +44,9 @@ This project provides:
 
 **Winner: vLLM** - 3.4x faster than TGI, 1.4x faster than Triton
 
-## Test Environment
+> **Important:** These results are specific to the test environment below. Performance will differ on other GPUs due to variations in memory bandwidth, compute units, and architectural differences. Use this framework to benchmark your own hardware for accurate performance data.
+
+## Reference Test Environment
 
 | Component | Specification |
 |-----------|---------------|
@@ -35,6 +55,20 @@ This project provides:
 | **GPU** | NVIDIA A100 MIG (20GB partition) |
 | **Model** | Mistral-7B-Instruct-v0.2 |
 | **Management** | Red Hat ACM (Advanced Cluster Management) |
+
+### Expected Performance Scaling by GPU
+
+| GPU | Approx. Memory | Expected Performance vs A100 MIG |
+|-----|----------------|----------------------------------|
+| H100 80GB | 80GB | ~2-3x faster |
+| A100 80GB | 80GB | ~1.5-2x faster |
+| A100 40GB | 40GB | ~1.2-1.5x faster |
+| **A100 MIG 20GB** | 20GB | **Baseline (this test)** |
+| L40S | 48GB | ~0.8-1.2x |
+| A10 | 24GB | ~0.5-0.8x |
+| T4 | 16GB | ~0.3-0.5x (may require quantization) |
+
+*Performance estimates are approximate and depend on model size, batch size, and configuration.*
 
 ## Repository Structure
 
@@ -247,7 +281,19 @@ This grants the service account access to use privileged security context, requi
 
 ## Configuration Recommendations
 
-### For 20GB MIG Partitions
+Configuration parameters should be adjusted based on your GPU's memory capacity. Below are guidelines for common configurations.
+
+### Configuration by GPU Memory
+
+| GPU Memory | max_model_len | gpu_memory_utilization | Quantization | Notes |
+|------------|---------------|------------------------|--------------|-------|
+| **80GB+** | 8192+ | 0.90 | None needed | Full FP16, large context |
+| **40-48GB** | 4096-8192 | 0.90 | None needed | FP16 recommended |
+| **20-24GB** | 2048 | 0.85 | Optional | Reference config |
+| **16GB** | 1024-2048 | 0.80 | Recommended | TGI needs 4-bit |
+| **<16GB** | 512-1024 | 0.75 | Required | Limited context length |
+
+### Reference: 20GB MIG Configuration (Tested)
 
 | Backend | Key Settings |
 |---------|--------------|
@@ -257,17 +303,29 @@ This grants the service account access to use privileged security context, requi
 
 ### Resource Requests
 
+Adjust based on your GPU and model requirements:
+
 ```yaml
 resources:
   requests:
-    memory: "16Gi"
+    memory: "16Gi"      # Increase for larger models
     cpu: "4"
     nvidia.com/gpu: "1"
   limits:
-    memory: "24Gi"
+    memory: "24Gi"      # Match to available node memory
     cpu: "8"
-    nvidia.com/gpu: "1"
+    nvidia.com/gpu: "1" # Or more for tensor parallelism
 ```
+
+### Tuning for Your Hardware
+
+When running on different GPUs:
+
+1. **Start conservative** - Use lower `gpu_memory_utilization` (0.80) initially
+2. **Monitor OOM errors** - Increase memory limits if pods get killed
+3. **Adjust context length** - Reduce `max_model_len` for smaller GPUs
+4. **Enable quantization** - Use 4-bit/8-bit for memory-constrained GPUs
+5. **Run your own benchmarks** - Use this framework to find optimal settings
 
 ## Cost Analysis
 
@@ -314,13 +372,30 @@ Common issues and solutions are documented in [docs/TROUBLESHOOTING.md](docs/TRO
 
 For questions, issues, or collaboration opportunities, please contact me at deepak.satna@gmail.com
 
+## Disclaimer
+
+This benchmarking framework and the associated performance results are provided for **informational and reference purposes only**.
+
+### Performance Variability
+
+- **Results are hardware-specific:** The benchmark numbers in this repository were obtained on NVIDIA A100 MIG (20GB) GPUs. Your results will differ based on your GPU model, memory capacity, driver version, and system configuration.
+- **No guaranteed performance:** The performance metrics shown should not be interpreted as guaranteed outcomes for any specific deployment.
+- **Benchmark your own environment:** We strongly recommend running these benchmarks on your target hardware to obtain accurate, environment-specific results.
+
+### Framework Usage
+
+- This framework is designed to be **GPU-agnostic** and can be adapted for various NVIDIA CUDA-compatible GPUs and AMD ROCm GPUs with appropriate image modifications.
+- Configuration parameters (memory utilization, context length, quantization) should be tuned for your specific GPU capabilities.
+- The relative performance ranking between backends (vLLM > Triton > TGI) may vary on different hardware configurations.
+
 ## License
 
 Apache 2.0
 
 ## Acknowledgments
 
-- IBM Fusion HCI team for cluster access
+- IBM Fusion HCI team for providing cluster access for reference benchmarking
 - NVIDIA for Triton Inference Server
-- HuggingFace for TGI
+- HuggingFace for Text Generation Inference (TGI)
 - vLLM team for the excellent inference engine
+- The open-source community for continuous improvements to LLM serving infrastructure
