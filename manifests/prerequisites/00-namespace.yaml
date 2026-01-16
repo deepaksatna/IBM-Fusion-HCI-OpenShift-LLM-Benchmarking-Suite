@@ -1,0 +1,12 @@
+# =============================================================================
+# LLM Benchmark Namespace
+# =============================================================================
+# Creates dedicated namespace for LLM inference benchmarking
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-bench
+  labels:
+    purpose: llm-benchmarking
+    app.kubernetes.io/part-of: llm-benchmark

@@ -1,0 +1,143 @@
+# =============================================================================
+# TGI Deployment - Reduced Settings for 20GB MIG
+# =============================================================================
+# Conservative memory settings to fit in 20GB MIG partition
+# =============================================================================
+---
+apiVersion: work.open-cluster-management.io/v1
+kind: ManifestWork
+metadata:
+  name: llm-bench-tgi
+  namespace: gpu1
+  labels:
+    app.kubernetes.io/part-of: llm-benchmark
+spec:
+  manifestConfigs:
+    - resourceIdentifier:
+        group: apps
+        resource: deployments
+        name: tgi-server
+        namespace: llm-bench
+      feedbackRules:
+        - type: JSONPaths
+          jsonPaths:
+            - name: replicas
+              path: .status.replicas
+            - name: readyReplicas
+              path: .status.readyReplicas
+            - name: unavailableReplicas
+              path: .status.unavailableReplicas
+  workload:
+    manifests:
+      - apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: tgi-server
+          namespace: llm-bench
+          labels:
+            app: tgi-server
+            backend: tgi
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: tgi-server
+          template:
+            metadata:
+              labels:
+                app: tgi-server
+                backend: tgi
+            spec:
+              serviceAccountName: bench-sa
+              containers:
+              - name: tgi
+                image: ghcr.io/huggingface/text-generation-inference:2.4.0
+                args:
+                  - "--model-id"
+                  - "mistralai/Mistral-7B-Instruct-v0.2"
+                  - "--hostname"
+                  - "0.0.0.0"
+                  - "--port"
+                  - "8000"
+                  - "--max-input-length"
+                  - "1024"
+                  - "--max-total-tokens"
+                  - "2048"
+                  - "--max-batch-prefill-tokens"
+                  - "2048"
+                  - "--dtype"
+                  - "float16"
+                  - "--quantize"
+                  - "bitsandbytes-nf4"
+                ports:
+                - containerPort: 8000
+                  name: http
+                env:
+                - name: HF_HOME
+                  value: "/data"
+                - name: HUGGINGFACE_OFFLINE
+                  value: "0"
+                - name: CUDA_VISIBLE_DEVICES
+                  value: "0"
+                resources:
+                  requests:
+                    memory: "12Gi"
+                    cpu: "4"
+                    nvidia.com/gpu: "1"
+                  limits:
+                    memory: "20Gi"
+                    cpu: "8"
+                    nvidia.com/gpu: "1"
+                volumeMounts:
+                - name: dshm
+                  mountPath: /dev/shm
+                readinessProbe:
+                  httpGet:
+                    path: /health
+                    port: 8000
+                  initialDelaySeconds: 300
+                  periodSeconds: 15
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: 8000
+                  initialDelaySeconds: 600
+                  periodSeconds: 30
+                  failureThreshold: 10
+              volumes:
+              - name: dshm
+                emptyDir:
+                  medium: Memory
+                  sizeLimit: "2Gi"
+              tolerations:
+              - key: nvidia.com/gpu
+                operator: Exists
+                effect: NoSchedule
+              nodeSelector:
+                nvidia.com/gpu.present: "true"
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: tgi-service
+          namespace: llm-bench
+        spec:
+          type: ClusterIP
+          selector:
+            app: tgi-server
+          ports:
+          - port: 8000
+            targetPort: 8000
+            name: http
+      - apiVersion: route.openshift.io/v1
+        kind: Route
+        metadata:
+          name: tgi-route
+          namespace: llm-bench
+        spec:
+          to:
+            kind: Service
+            name: tgi-service
+          port:
+            targetPort: http
+          tls:
+            termination: edge

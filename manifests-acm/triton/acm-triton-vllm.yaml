@@ -1,0 +1,203 @@
+# =============================================================================
+# Triton Inference Server with vLLM Backend
+# =============================================================================
+# Uses Triton's vLLM backend (simpler than TensorRT-LLM)
+# Optimized for 20GB MIG partitions
+# =============================================================================
+---
+apiVersion: work.open-cluster-management.io/v1
+kind: ManifestWork
+metadata:
+  name: llm-bench-triton
+  namespace: gpu1
+  labels:
+    app.kubernetes.io/part-of: llm-benchmark
+spec:
+  manifestConfigs:
+    - resourceIdentifier:
+        group: apps
+        resource: deployments
+        name: triton-server
+        namespace: llm-bench
+      feedbackRules:
+        - type: JSONPaths
+          jsonPaths:
+            - name: replicas
+              path: .status.replicas
+            - name: readyReplicas
+              path: .status.readyReplicas
+            - name: unavailableReplicas
+              path: .status.unavailableReplicas
+  workload:
+    manifests:
+      - apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: triton-server
+          namespace: llm-bench
+          labels:
+            app: triton-server
+            backend: triton
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: triton-server
+          template:
+            metadata:
+              labels:
+                app: triton-server
+                backend: triton
+            spec:
+              serviceAccountName: bench-sa
+              containers:
+              - name: triton
+                # Triton with vLLM backend
+                image: nvcr.io/nvidia/tritonserver:24.08-vllm-python-py3
+                command: ["tritonserver"]
+                args:
+                  - "--model-repository=/models"
+                  - "--http-port=8000"
+                  - "--grpc-port=8001"
+                  - "--metrics-port=8002"
+                  - "--log-verbose=1"
+                ports:
+                - containerPort: 8000
+                  name: http
+                - containerPort: 8001
+                  name: grpc
+                - containerPort: 8002
+                  name: metrics
+                env:
+                - name: HF_HOME
+                  value: "/data"
+                - name: HUGGINGFACE_OFFLINE
+                  value: "0"
+                resources:
+                  requests:
+                    memory: "16Gi"
+                    cpu: "4"
+                    nvidia.com/gpu: "1"
+                  limits:
+                    memory: "24Gi"
+                    cpu: "8"
+                    nvidia.com/gpu: "1"
+                volumeMounts:
+                - name: dshm
+                  mountPath: /dev/shm
+                - name: model-config
+                  mountPath: /models/mistral/config.pbtxt
+                  subPath: config.pbtxt
+                - name: model-config
+                  mountPath: /models/mistral/1/model.json
+                  subPath: model.json
+                readinessProbe:
+                  httpGet:
+                    path: /v2/health/ready
+                    port: 8000
+                  initialDelaySeconds: 300
+                  periodSeconds: 15
+                livenessProbe:
+                  httpGet:
+                    path: /v2/health/live
+                    port: 8000
+                  initialDelaySeconds: 600
+                  periodSeconds: 30
+                  failureThreshold: 10
+              volumes:
+              - name: dshm
+                emptyDir:
+                  medium: Memory
+                  sizeLimit: "4Gi"
+              - name: model-config
+                configMap:
+                  name: triton-model-config
+              tolerations:
+              - key: nvidia.com/gpu
+                operator: Exists
+                effect: NoSchedule
+              nodeSelector:
+                nvidia.com/gpu.present: "true"
+      # ConfigMap for Triton model config
+      - apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: triton-model-config
+          namespace: llm-bench
+        data:
+          config.pbtxt: |
+            name: "mistral"
+            backend: "vllm"
+            max_batch_size: 0
+
+            model_transaction_policy {
+              decoupled: True
+            }
+
+            input [
+              {
+                name: "text_input"
+                data_type: TYPE_STRING
+                dims: [ 1 ]
+              },
+              {
+                name: "stream"
+                data_type: TYPE_BOOL
+                dims: [ 1 ]
+                optional: true
+              }
+            ]
+
+            output [
+              {
+                name: "text_output"
+                data_type: TYPE_STRING
+                dims: [ -1 ]
+              }
+            ]
+
+            instance_group [
+              {
+                count: 1
+                kind: KIND_MODEL
+              }
+            ]
+          model.json: |
+            {
+              "model": "mistralai/Mistral-7B-Instruct-v0.2",
+              "max_model_len": 2048,
+              "gpu_memory_utilization": 0.85,
+              "dtype": "half",
+              "enforce_eager": true
+            }
+      # Service
+      - apiVersion: v1
+        kind: Service
+        metadata:
+          name: triton-service
+          namespace: llm-bench
+        spec:
+          type: ClusterIP
+          selector:
+            app: triton-server
+          ports:
+          - port: 8000
+            targetPort: 8000
+            name: http
+          - port: 8001
+            targetPort: 8001
+            name: grpc
+      # Route
+      - apiVersion: route.openshift.io/v1
+        kind: Route
+        metadata:
+          name: triton-route
+          namespace: llm-bench
+        spec:
+          to:
+            kind: Service
+            name: triton-service
+          port:
+            targetPort: http
+          tls:
+            termination: edge

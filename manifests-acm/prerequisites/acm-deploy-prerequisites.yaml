@@ -1,0 +1,41 @@
+# =============================================================================
+# LLM Benchmark Prerequisites
+# =============================================================================
+# Deploy this FIRST, then apply SCC, then deploy LLM workloads
+# =============================================================================
+---
+# 1. NAMESPACE
+apiVersion: work.open-cluster-management.io/v1
+kind: ManifestWork
+metadata:
+  name: llm-bench-namespace
+  namespace: gpu1
+  labels:
+    app.kubernetes.io/part-of: llm-benchmark
+spec:
+  workload:
+    manifests:
+      - apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: llm-bench
+          labels:
+            purpose: llm-benchmarking
+
+---
+# 2. SERVICE ACCOUNT
+apiVersion: work.open-cluster-management.io/v1
+kind: ManifestWork
+metadata:
+  name: llm-bench-serviceaccount
+  namespace: gpu1
+  labels:
+    app.kubernetes.io/part-of: llm-benchmark
+spec:
+  workload:
+    manifests:
+      - apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: bench-sa
+          namespace: llm-bench

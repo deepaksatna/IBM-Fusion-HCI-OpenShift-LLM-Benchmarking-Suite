@@ -1,0 +1,16 @@
+# LLM Benchmark Client Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core (standard library - no install needed)
+# - argparse
+# - json
+# - time
+# - ssl
+# - concurrent.futures
+# - urllib
+
+# For visualization (optional)
+matplotlib>=3.7.0
+numpy>=1.24.0
+pandas>=2.0.0
+seaborn>=0.12.0

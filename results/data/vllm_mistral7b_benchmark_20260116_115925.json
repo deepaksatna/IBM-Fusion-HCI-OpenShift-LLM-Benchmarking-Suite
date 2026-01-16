@@ -1,0 +1,50 @@
+{
+  "short_prompt": {
+    "total_requests": 30,
+    "successful_requests": 30,
+    "failed_requests": 0,
+    "latency": {
+      "mean": 1.6734323721010393,
+      "median": 1.6526670415041735,
+      "stdev": 0.04126005018044661,
+      "min": 1.6459198340016883,
+      "max": 1.8092580829979852,
+      "p50": 1.6529018750006799,
+      "p90": 1.7277870000107214,
+      "p99": 1.8092580829979852
+    },
+    "tokens_per_second": {
+      "mean": 59.79106191026114,
+      "median": 60.508256961454094,
+      "max": 60.7563004796365
+    }
+  },
+  "medium_prompt": {
+    "total_requests": 30,
+    "successful_requests": 1,
+    "failed_requests": 29,
+    "latency": {
+      "mean": 1.669485332997283,
+      "median": 1.669485332997283,
+      "stdev": 0,
+      "min": 1.669485332997283,
+      "max": 1.669485332997283,
+      "p50": 1.669485332997283,
+      "p90": 1.669485332997283,
+      "p99": 1.669485332997283
+    },
+    "tokens_per_second": {
+      "mean": 59.8986993317675,
+      "median": 59.8986993317675,
+      "max": 59.8986993317675
+    }
+  },
+  "long_prompt": {
+    "error": "All iterations failed"
+  },
+  "backend": "vllm",
+  "endpoint": "https://vllm-route-llm-bench.apps.gpu1.fusion.isys.hpc.dc.uq.edu.au",
+  "iterations": 30,
+  "max_tokens": 100,
+  "timestamp": "2026-01-16T12:01:49.649089"
+}

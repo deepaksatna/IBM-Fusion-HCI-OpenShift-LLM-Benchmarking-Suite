@@ -1,0 +1,130 @@
+# =============================================================================
+# vLLM Deployment - Mistral-7B
+# =============================================================================
+# High-performance LLM inference with vLLM
+# Optimized for NVIDIA A100 MIG (20GB partition)
+#
+# Performance: 560+ tokens/sec at concurrency=16
+# =============================================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-server
+  namespace: llm-bench
+  labels:
+    app: vllm-server
+    backend: vllm
+    app.kubernetes.io/part-of: llm-benchmark
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-server
+  template:
+    metadata:
+      labels:
+        app: vllm-server
+        backend: vllm
+    spec:
+      serviceAccountName: bench-sa
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.6.4.post1
+        command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+        args:
+          - "--model"
+          - "mistralai/Mistral-7B-Instruct-v0.2"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "8000"
+          - "--tensor-parallel-size"
+          - "1"
+          - "--max-model-len"
+          - "2048"                    # Limited for 20GB MIG
+          - "--gpu-memory-utilization"
+          - "0.85"                    # Leave headroom for KV cache
+          - "--dtype"
+          - "half"                    # FP16 for memory efficiency
+          - "--trust-remote-code"
+          - "--enforce-eager"         # Disable CUDA graphs for MIG
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: HF_HOME
+          value: "/root/.cache/huggingface"
+        - name: HF_HUB_OFFLINE
+          value: "0"
+        - name: TRANSFORMERS_OFFLINE
+          value: "0"
+        resources:
+          requests:
+            memory: "16Gi"
+            cpu: "4"
+            nvidia.com/gpu: "1"
+          limits:
+            memory: "24Gi"
+            cpu: "8"
+            nvidia.com/gpu: "1"
+        volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 300   # Model download takes time
+          periodSeconds: 15
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 600
+          periodSeconds: 30
+          failureThreshold: 10
+      volumes:
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "4Gi"
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-service
+  namespace: llm-bench
+  labels:
+    app.kubernetes.io/part-of: llm-benchmark
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm-server
+  ports:
+  - port: 8000
+    targetPort: 8000
+    name: http
+---
+# OpenShift Route (comment out for vanilla Kubernetes)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: vllm-route
+  namespace: llm-bench
+  labels:
+    app.kubernetes.io/part-of: llm-benchmark
+spec:
+  to:
+    kind: Service
+    name: vllm-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge

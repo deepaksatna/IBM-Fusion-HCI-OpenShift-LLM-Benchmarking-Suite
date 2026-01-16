@@ -1,0 +1,40 @@
+# =============================================================================
+# Security Context Constraints for LLM Benchmark
+# =============================================================================
+# CRITICAL: This file grants privileged access required for GPU workloads
+# Without this, pods will crash with CrashLoopBackOff on OpenShift
+# =============================================================================
+---
+# Grant privileged SCC to the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: llm-bench-privileged
+  namespace: llm-bench
+  labels:
+    app.kubernetes.io/part-of: llm-benchmark
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+- kind: ServiceAccount
+  name: bench-sa
+  namespace: llm-bench
+---
+# Also bind anyuid SCC for container user flexibility
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: llm-bench-anyuid
+  namespace: llm-bench
+  labels:
+    app.kubernetes.io/part-of: llm-benchmark
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+- kind: ServiceAccount
+  name: bench-sa
+  namespace: llm-bench
